@@ -1,0 +1,22 @@
+POST https://www.googleapis.com/compute/v1/projects/fred-hsu-veos/global/networks
+{
+  "autoCreateSubnetworks": false,
+  "description": "",
+  "mtu": 1460,
+  "name": "cc-fred",
+  "routingConfig": {
+    "routingMode": "REGIONAL"
+  },
+  "selfLink": "projects/fred-hsu-veos/global/networks/cc-fred"
+} && POST https://www.googleapis.com/compute/v1/projects/fred-hsu-veos/regions/us-west1/subnetworks
+{
+  "description": "",
+  "enableFlowLogs": false,
+  "ipCidrRange": "10.0.0.0/24",
+  "name": "cc-fred-sn",
+  "network": "projects/fred-hsu-veos/global/networks/cc-fred",
+  "privateIpGoogleAccess": false,
+  "region": "projects/fred-hsu-veos/regions/us-west1",
+  "selfLink": "projects/fred-hsu-veos/regions/us-west1/subnetworks/cc-fred-sn",
+  "stackType": "IPV4_ONLY"
+}
