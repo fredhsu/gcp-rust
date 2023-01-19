@@ -1,42 +1,21 @@
-use serde::{Deserialize, Serialize};
+use color_eyre::eyre::Result;
+use gcp_rust::instance::Instance;
+use gcp_rust::vpc::Vpc;
+use serde::Deserialize;
 use std::process::Command;
 use std::str;
 use url::Url;
 
 const ENDPOINT_URL: &str = "https://www.googleapis.com/compute/v1";
-#[derive(Serialize, Debug)]
-#[serde(rename_all = "camelCase")]
-struct Vpc {
-    auto_create_subnetworks: bool,
-    name: String,
-    routing_config: RoutingConfig,
-}
-impl Vpc {
-    pub fn new(name: &str) -> Self {
-        let routing_config = RoutingConfig {
-            routing_mode: "REGIONAL".to_string(),
-        };
-        Self {
-            auto_create_subnetworks: true,
-            name: name.to_string(),
-            routing_config,
-        }
-    }
-}
-#[derive(Serialize, Debug)]
-#[serde(rename_all = "camelCase")]
-struct RoutingConfig {
-    routing_mode: String, // TODO: replace with enum?
-}
 #[derive(Debug)]
 struct Client {
     project_id: String,
     token: Option<String>,
 }
 impl Client {
-    pub fn new() -> Self {
+    pub fn new(project_id: &str) -> Self {
         Self {
-            project_id: "fred-hsu-veos".to_string(),
+            project_id: project_id.to_string(),
             token: None,
         }
     }
@@ -48,6 +27,21 @@ impl Client {
         self.token = Some(str::from_utf8(&output.stdout).unwrap().trim().to_string());
         println!("{:?}", self.token);
     }
+    pub async fn create_instance(
+        &self,
+        instance: Instance,
+        zone: &str,
+    ) -> Result<reqwest::Response, reqwest::Error> {
+        let endpoint = format!("{ENDPOINT_URL}/projects/fred-hsu-veos/zones/{zone}/instances");
+        let client = reqwest::Client::new();
+        let token = self.token.as_ref().unwrap();
+        client
+            .post(endpoint)
+            .bearer_auth(token)
+            .json(&instance)
+            .send()
+            .await
+    }
     pub async fn create_vpc(&self, vpc: Vpc) -> Result<reqwest::Response, reqwest::Error> {
         let endpoint = format!("{ENDPOINT_URL}/projects/fred-hsu-veos/global/networks");
         let client = reqwest::Client::new();
@@ -58,6 +52,19 @@ impl Client {
             .json(&vpc)
             .send()
             .await
+    }
+    pub async fn wait_on_global_operation(&self, go: GlobalOperation) -> Result<GlobalOperation> {
+        let endpoint = go.wait_url();
+        let client = reqwest::Client::new();
+        let token = self.token.as_ref().unwrap();
+        Ok(client
+            .post(endpoint)
+            .bearer_auth(token)
+            .header(reqwest::header::CONTENT_LENGTH, 0)
+            .send()
+            .await?
+            .json()
+            .await?)
     }
 }
 
@@ -83,10 +90,11 @@ impl GlobalOperation {
             .collect::<Vec<&str>>();
         segments[3].to_string()
     }
-    pub async fn wait(&self) {
+    pub fn wait_url(&self) -> String {
         let project = self.get_project();
         let resource_id = &self.id;
-        let url = format!("https://compute.googleapis.com/compute/v1/projects/{project}/global/operations/{resource_id}/wait");
+        println!("wait_url: https://compute.googleapis.com/compute/v1/projects/{project}/global/operations/{resource_id}/wait");
+        format!("https://compute.googleapis.com/compute/v1/projects/{project}/global/operations/{resource_id}/wait")
     }
 }
 
@@ -96,15 +104,20 @@ curl -X GET \
     "https://cloudresourcemanager.googleapis.com/v3/projects/PROJECT_ID"
                 */
 #[tokio::main]
-async fn main() -> Result<(), reqwest::Error> {
-    let vpc = Vpc::new("fh-test-4");
-    println!("{vpc:?}");
+async fn main() -> Result<()> {
+    let vpcname = "fh-test-3";
+    let zone = "us-west1-a";
+    let vpc = Vpc::new(vpcname);
 
-    let mut c = Client::new();
+    let mut c = Client::new("fred-hsu-veos");
     c.get_token();
-    let res = c.create_vpc(vpc).await?.json::<GlobalOperation>().await?;
-    println!("{res:?}");
-    println!("Resource ID: {}", res.id);
-    println!("Project: {}", res.get_project());
+    let go = c.create_vpc(vpc).await?.json::<GlobalOperation>().await?;
+    println!("Waiting for vpc create to finish");
+    let resp = c.wait_on_global_operation(go).await?;
+    println!("Response on wait: {resp:?}");
+    let instance = Instance::new("fh-vm-1", vpcname, zone);
+    //let ci = c.create_instance(instance, zone).await?.json::<RegionalOperation>().await?;
+    let ci = c.create_instance(instance, zone).await?.text().await?;
+    println!("ci: {ci:?}");
     Ok(())
 }
