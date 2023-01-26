@@ -6,6 +6,8 @@ pub struct Instance {
     name: String,
     disks: Vec<Disk>,
     network_interfaces: Vec<NetworkInterface>,
+    #[serde(skip)]
+    pub zone: String,
 }
 // TODO implement builder pattern for this
 impl Instance {
@@ -19,6 +21,7 @@ impl Instance {
             machine_type,
             name: name.to_string(),
             network_interfaces,
+            zone: zone.to_string(),
         }
     }
 }
@@ -82,7 +85,7 @@ impl NetworkInterface {
         Self {
             access_configs,
             stack_type: "IPV4_ONLY".to_string(),
-            subnetwork: "projects/fred-hsu-veos/regions/us-west1/subnetworks/fh-test-1".to_string(),
+            subnetwork: format!("projects/fred-hsu-veos/regions/us-west1/subnetworks/{subnetwork}"),
         }
     }
 }
